@@ -1,0 +1,2 @@
+rows_before,rows_after,cols_before,cols_after,dropped_columns,dropped_columns_count,dropped_rows_missing_target
+145460,142193,23,19,Sunshine;Evaporation;Cloud3pm;Cloud9am,4,3267

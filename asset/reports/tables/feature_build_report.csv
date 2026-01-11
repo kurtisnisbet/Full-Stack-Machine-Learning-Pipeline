@@ -1,0 +1,2 @@
+rows_loaded,rows_after_drop_bad_date,rows_after_drop_missing_target,n_features_before_encoding,n_numeric_features,n_categorical_features,n_features_after_encoding,train_rows,val_rows,test_rows,date_min,date_max,train_date_min,train_date_max,val_date_min,val_date_max,test_date_min,test_date_max,excluded_leakage_cols
+142193,142193,142193,16,11,5,114,99535,21328,21330,2007-11-01,2017-06-25,2007-11-01,2015-01-12,2015-01-12,2016-04-08,2016-04-08,2017-06-25,Date;Rainfall;RainTomorrow

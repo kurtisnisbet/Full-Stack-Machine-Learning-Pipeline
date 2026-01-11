@@ -1,0 +1,50 @@
+project:
+  name: Rain Predictor
+  author: Kurtis Nisbet
+
+paths:
+  #Core Directories
+  data_dir: data
+  notebooks_dir: notebooks
+  src_dir: src
+  models_dir: models
+  reports_dir: reports
+
+  #Data layers
+  data_raw_dir: data/raw
+  data_interim_dir: data/interim
+  data_processed_dir: data/processed
+
+  #Report outputs
+  figures_dir: reports/figures
+  tables_dir: reports/tables
+
+files:
+  # Input data
+  raw_dataset: weatherAUS.csv
+
+  # Cleaned and feature-ready data
+  processed_dataset: weatherAUS_processed.parquet
+  features_dataset: weatherAUS_features.parquet
+  processed_dataset: rainfall_processed.parquet
+
+  X_train: X_train.parquet
+  X_val: X_val.parquet
+  X_test: X_test.parquet
+  y_train: y_train.parquet
+  y_val: y_val.parquet
+  y_test: y_test.parquet
+
+  # Outputs
+  metrics_table: reports/tables/metrics.csv
+  confusion_matrix: reports/figures/confusion_matrix.png
+  model_artifact: models/rain_model.pkl
+
+reproducibility:
+  random_seed: 42
+
+split:
+  method: time
+  train_fraction: 0.7
+  validation_fraction: 0.15
+  test_fraction: 0.15
