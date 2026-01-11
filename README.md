@@ -1,12 +1,10 @@
 # Australian Rainfall Predictor Model (2008-2017)
 
-This repository contains a reproducible end-to-end machine learning pipeline to predict whether it will rain tomorrow using the Australian Weather data. The pipeline is full-stack, containing data ingestion, cleaning, feature engineering, time-aware splitting, model selection via validation,a dn final evaluation on a held-out test set. 
+This repository contains a reproducible end-to-end machine learning pipeline to predict whether it will rain tomorrow using the Australian Weather data. The pipeline is full-stack, containing data ingestion, cleaning, feature engineering, time-aware splitting, model selection via validation, and final evaluation on a held-out test set. 
 
-This repository details the key steps of the pipeline, accompanied with key visualisations and plots assessing the dataset and model performance.
+It is possible to create pipelines in Cloud infrastructure with minimal coding, or to use LLMs to create a pipeline automatically. However, the aim of this project was to challenge myself to create one manually, to develop my understanding of the key components of a pipeline, and better enable my abilities in data engineering. This repository demonstrates my work on this pipeline, which I have developed over several weeks of work. There is work that can done to develop this pipeline further, but in its current state it is functional and portable package, and I am happy to upload it as is.
 
-The data source is the Australian Weather Dataset (WeatherAUS from Kaggle), with a target variable of RainTomorrow (Yes/No). 
-
-The data are tabular, time-series weather observations taken from multiple weather stations across the country. 
+The data source is the Australian Weather Dataset (WeatherAUS from Kaggle). The target variable of RainTomorrow (Yes/No). 
 
 ---
 
@@ -37,7 +35,7 @@ The data are tabular, time-series weather observations taken from multiple weath
 ---
 
 ## Overview
-The workflow transforms raw weather records through structured preprocessing, feature construction, and temporally consistent data partitioning. Models are trained and compared using validation-based selection, with final performance assessed on unseen data and supported by diagnostic metrics and visual analyses.
+The pipeline transforms raw weather records through preprocessing, feature construction, and data partitioning (adaptive sampling) . Models are trained and compared using validation-based selection, with final performance assessed on unseen data and supported by diagnostic metrics and visual analyses.
 
 ```
 Configuration (YAML)
@@ -63,12 +61,12 @@ This section details each of the key pipeline stages.
 ### Configuration
 The parameters used in this pipeline are centralised in ```config.yaml```, such as the file and directory paths, the ratios for training/validation/test splits, the random seed, figure and report output locations.
 
-This was done to remove hard-coded paths and constraints from scripts, ensuring the pipeline can be re-run on different machines or environments without code changes. Further, it can be audited and versioned, as changes to the experiments are explicit in the config file. Finally, easily allows additions without breaking the pipeline, such as new datasets, models, and outputs, only requiring edits to the ```config.yaml``` file.
+This was done to remove hard-coded paths and constraints from scripts, ensuring the pipeline can be re-run on different machines or environments without code changes. Further, it can be audited and versioned, as changes to the experiments are explicit in the config file. Finally, using a config file allows changes to be made to the dataset, model, or outputs without breaking the pipeline, only requiring edits to the ```config.yaml``` file.
 
 ---
 
 ### Ingestion
-Raw data ingested from .CSV files and stored into a parquet intended for processes in the interim (and to leave the raw data unmodified), ```weatherAUS_interim.parquet```
+Raw data is ingested from .CSV files and stored into a parquet intended for processes in the interim, ```weatherAUS_interim.parquet```. This was done so all preprocessing can be done on the interim dataset, leaving the raw dataset unmodified. 
 
 Parquets where chosen as the file format for this pipeline as they are columnar (not row-based which is less efficient for steps in ML pipelines such as feature engineering), and is compressed, which is ideal for large datasets.
 
@@ -77,60 +75,32 @@ After ingestion, the data quality artefacts are generated and detailed below.
 ---
 
 #### Ingestion report
-Found the dataset has 14560 rows, 23 columns, 0 duplicates, and dates range from 01/11/2007 to 25/06/2017.
+The ingestion report states the ```WeatherAUS``` data has 14560 rows, 23 columns, 0 duplicates, and dates range from 01/11/2007 to 25/06/2017. Refer to the [Metadata](#metadata) section of the Appendices for the definition and units of each column.
 
-From this report, we know we need to ensure splitting the dataset for training, testing, and evaluation need to be randomly selected from dates throughout the time series, and are not sequential.
+From this report, we can determine that since one column consists of dates, we will need to ensure splitting method that pulls data randomly throughout the time series (and not sequentually). This step is described in section [Splitting the dataset](#splitting-the-dataset).
 
-Further, we know there are no duplicates, so we do not need to include this step in the cleaning process.
+Further, we know there are no duplicates, so we do not need to include this step in the cleaning process. 
 
 ---
 
 ### Missingness report (before cleaning)
 
-Some variables have considerable fractions of missing values, namely sunshine, evaporation, and the cloud data (each above 38%). These variables will need to be removed, as they will reduce quality of engineered features and affect model performance.
+From looking at the data within the .csv file, it is immediately obvious there are null values, with some variables have consisting of considerable fractions of missing values. The pipeline generates a ```missingness_report_before_cleaning``` to alert us of what proportion of data is missing from each variable (included in the [Missingness report (after cleaning](#missingness-report-(after-cleaning) section of the Appendix).
 
-For the remainder of the variables, these will be imputed, using the average value of each variable from each station.
+The most notable variables are sunshine, evaporation, and the cloud data (each above 38% missing values), so these needed to be removed otherwise they will reduce quality of engineered features and affect model performance.
 
-The fraction of missing values for each variable:
-
-| column        	| missing_fraction 	|
-|---------------	|------------------	|
-| Sunshine      	| 0.48             	|
-| Evaporation   	| 0.43             	|
-| Cloud3pm      	| 0.41             	|
-| Cloud9am      	| 0.38             	|
-| Pressure9am   	| 0.10             	|
-| Pressure3pm   	| 0.10             	|
-| WindDir9am    	| 0.07             	|
-| WindGustDir   	| 0.07             	|
-| WindGustSpeed 	| 0.07             	|
-| Humidity3pm   	| 0.03             	|
-| WindDir3pm    	| 0.03             	|
-| Temp3pm       	| 0.02             	|
-| RainTomorrow  	| 0.02             	|
-| Rainfall      	| 0.02             	|
-| RainToday     	| 0.02             	|
-| WindSpeed3pm  	| 0.02             	|
-| Humidity9am   	| 0.02             	|
-| WindSpeed9am  	| 0.01             	|
-| Temp9am       	| 0.01             	|
-| MinTemp       	| 0.01             	|
-| MaxTemp       	| 0.01             	|
-| Date          	| 0                	|
-| Location      	| 0                	|
+For the remainder of the variables, these will be imputed using the average value of each variable from each station.
 
 ---
 
 ### Cleaning
 The pipeline applies structural cleaning and schema validation on the ```weatherAUS_interim.parquet``` to prepare the data for feature engineering and modelling.
 
-At the column level, variables with high missingness (```Sunshine```, ```Evaporation```, ```Cloud3pm```, ```Cloud9am```) are removed as they were inconsistenly recorded and not suitable for meaningful imputation.
+At the column level, any variable with missingness above 38%, namely ```Sunshine```, ```Evaporation```, ```Cloud3pm```, ```Cloud9am```, are removed as they will not suitable for meaningful feature engineering.
 
 The remaining fields are validated, and cast to consistent data types (i.e. numerical, categorical, dates) confirm to a single schema.
 
 At the row level, records with missing or invalid target values are dropped, reducing the row count to ensure all observations have observed outcomes.
-
-No statistical imputation is performed; genuine missing values in predictors are preserved for explicit handling during feature engineering.
 
 The cleaned dataset is saved as ```rainfall_processed.parquet```.
 
@@ -139,24 +109,24 @@ The cleaned dataset is saved as ```rainfall_processed.parquet```.
 ---
 
 ### Feature engineering
-Feature engineering transforms the cleaned dataset (```rainfall_processed.parquet```) into model-ready inputs while preserving data integrity and preventing leakage by removing key variables. 
+Feature engineering transforms the cleaned dataset into inputs that are model-ready, while preventing leakage by removing variables that are probabiliy multi-collinear with the target variable, i.e. ```Rainfall``` and ```RainToday``` are likely collinear with ```RainTomorrow```, and since the model is trying to predict rainfall from weather data, not necessarily prior rainfall data, these were removed. 
 
-Non-predictive fields (```Date```, ```Rainfall```) are excluded, and the target variable (```RainTomorrow```) is separated from predictors. 
+Further, non-predictive fields (```Date```, ```Rainfall```) are excluded.
 
-Categorical variables are encoded into numeric representations, and missing values in predictor fields are imputed using reproducible strategies defined in configuration. 
+Categorical variables are then encoded into numeric representations, and missing values in predictor fields are imputed using reproducible strategies defined in configuration. 
 
-No information from the target or future observations is used during transformation. This step converts the human-readable dataset into structured feature matrices suitable for machine learning while ensuring that all modelling assumptions—encoding, imputation, and column selection—are explicitly documented and repeatable. 
+No information from the target or future observations is used during transformation. This step converts the human-readable dataset into structured feature matrices suitable for machine learning while ensuring that all modelling assumptions—encoding and column selection—are explicitly documented and repeatable. 
 
-The output of this stage is a numeric representation of the data that can be directly consumed by downstream training and evaluation processes.
+The output of this stage is a numeric representation of the data, which is then split.
 
 ---
 
 #### Splitting the dataset
-The dataset is partitioned using a time-aware split to preserve temporal order and prevent future information from influencing past predictions. 
+The dataset is partitioned using a chronological split based on the observation date, rather than random sampling. The record is first sorted in ascending order by ```Date```, intended to preserve the natural temporal sequence of weather observations. An assumption I had for the splitting was that ```RainTomorrow``` may be predicted by the weather data more than a single day prior, hence the chronological splitting. 
 
-Records are sorted by Date and divided into 70% training, 15% validation, and 15% test sets. This ensures that model selection is based on unseen data and that final performance is evaluated on a strictly held-out period. These features were engineered from 99535 rows of training data, 21328 rows of validation rate, and 21330 rows of testing data.
+In praxctice, this split approximates a rolling-forecast type scenario. The model is trained on the first 70% of the dataset, ordered by date, the tuned on a more recent time window, and is then folly assessed on the most recent adn fully unseen last 15%. The training dataset consisted of 99535 rows, with validation and testing having each 21328 and 21330 rows respectively.
 
-The split datasets are saved as separate Parquet files: ```X_train.parquet```, ```X_val.parquet```, ```X_test.parquet``` for features, and ```y_train.parquet```, ```y_val.parquet```, ```y_test.parquet``` for targets. This structure was used to ensure consistent partitions across experiments and enforces reproducible evaluation throughout the pipeline.
+The splits are saved as separate Parquet files: ```X_train.parquet```, ```X_val.parquet```, ```X_test.parquet``` for features, and ```y_train.parquet```, ```y_val.parquet```, ```y_test.parquet``` for targets.
 
 ---
 
@@ -316,6 +286,35 @@ Automated reporting ensures that quantitative metrics and visual diagnostics are
 | WindDir9am    	| Cardinal direction 	| Direction of the wind at 9am.                                       	|
 | RainToday     	| Yes/No             	| Whether or not it had rained.                                       	|
 | RainTomorrow  	| Yes/No             	| The target variable. Is it expected to rain the next day?           	|
+
+---
+### Missingness report (before cleaning)
+
+| column        	| missing_fraction 	|
+|---------------	|------------------	|
+| Sunshine      	| 0.48             	|
+| Evaporation   	| 0.43             	|
+| Cloud3pm      	| 0.41             	|
+| Cloud9am      	| 0.38             	|
+| Pressure9am   	| 0.10             	|
+| Pressure3pm   	| 0.10             	|
+| WindDir9am    	| 0.07             	|
+| WindGustDir   	| 0.07             	|
+| WindGustSpeed 	| 0.07             	|
+| Humidity3pm   	| 0.03             	|
+| WindDir3pm    	| 0.03             	|
+| Temp3pm       	| 0.02             	|
+| RainTomorrow  	| 0.02             	|
+| Rainfall      	| 0.02             	|
+| RainToday     	| 0.02             	|
+| WindSpeed3pm  	| 0.02             	|
+| Humidity9am   	| 0.02             	|
+| WindSpeed9am  	| 0.01             	|
+| Temp9am       	| 0.01             	|
+| MinTemp       	| 0.01             	|
+| MaxTemp       	| 0.01             	|
+| Date          	| 0                	|
+| Location      	| 0                	|
 
 ---
 
