@@ -1,4 +1,4 @@
-# Australian Rainfall Predictor Model (2008-2017)
+# Full Stack ML Pipeline (Australian Rainfall Prediction)
 
 This repository contains a reproducible end-to-end machine learning pipeline to predict whether it will rain tomorrow using the Australian Weather data. The pipeline is full-stack, containing data ingestion, cleaning, feature engineering, time-aware splitting, model selection via validation, and final evaluation on a held-out test set. 
 
