@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import joblib
 from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
+from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 
 from src.utils.config import load_config
@@ -37,7 +38,8 @@ def build_paths(cfg: dict) -> dict:
     files = cfg["files"]
 
     processed_dir = Path(paths["data_processed_dir"])
-    tables_dir = Path(paths["tables_dir"])
+    models_dir    = Path(paths["models_dir"])
+    tables_dir    = Path(paths["tables_dir"])
 
     processed_dataset_name = str(files["processed_dataset"])
     processed_file = processed_dir / processed_dataset_name
@@ -52,16 +54,18 @@ def build_paths(cfg: dict) -> dict:
     report_file = tables_dir / "feature_build_report.csv"
 
     return {
-        "processed_dir": processed_dir,
-        "tables_dir": tables_dir,
-        "processed_file": processed_file,
-        "X_train_file": processed_dir / X_train_name,
-        "X_val_file": processed_dir / X_val_name,
-        "X_test_file": processed_dir / X_test_name,
-        "y_train_file": processed_dir / y_train_name,
-        "y_val_file": processed_dir / y_val_name,
-        "y_test_file": processed_dir / y_test_name,
-        "report_file": report_file,
+        "processed_dir":        processed_dir,
+        "models_dir":           models_dir,
+        "tables_dir":           tables_dir,
+        "processed_file":       processed_file,
+        "X_train_file":         processed_dir / X_train_name,
+        "X_val_file":           processed_dir / X_val_name,
+        "X_test_file":          processed_dir / X_test_name,
+        "y_train_file":         processed_dir / y_train_name,
+        "y_val_file":           processed_dir / y_val_name,
+        "y_test_file":          processed_dir / y_test_name,
+        "report_file":          report_file,
+        "preprocessor_artifact": models_dir / "preprocessor.pkl",
     }
 
 
@@ -109,6 +113,7 @@ def main(config_path: str = "config.yaml") -> None:
         )
 
     ensure_dir(p["processed_dir"])
+    ensure_dir(p["models_dir"])
     ensure_dir(p["tables_dir"])
 
     # Loads cleaned data
@@ -193,6 +198,18 @@ def main(config_path: str = "config.yaml") -> None:
     X_val = pd.DataFrame(X_val_arr, columns=feature_names).reset_index(drop=True)
     X_test = pd.DataFrame(X_test_arr, columns=feature_names).reset_index(drop=True)
 
+    # Persist preprocessor so the Streamlit app can apply it to raw user inputs
+    joblib.dump(
+        {
+            "preprocessor":    preprocessor,
+            "numeric_cols":    numeric_cols,
+            "categorical_cols": categorical_cols,
+            "feature_names":   list(feature_names),
+            "leakage_cols":    [c for c in leakage_cols if c in df.columns],
+        },
+        p["preprocessor_artifact"],
+    )
+
     # Saves outputs
     X_train.to_parquet(p["X_train_file"], index=False)
     X_val.to_parquet(p["X_val_file"], index=False)
@@ -247,6 +264,7 @@ def main(config_path: str = "config.yaml") -> None:
     print(f"Report:  {p['report_file']}")
     print(f"Features after encoding: {X_train.shape[1]}")
     print(f"Rows (train/val/test): {len(X_train):,}/{len(X_val):,}/{len(X_test):,}")
+    print(f"Preprocessor: {p['preprocessor_artifact']}")
 
 
 if __name__ == "__main__":

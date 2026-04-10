@@ -48,3 +48,44 @@ split:
   train_fraction: 0.7
   validation_fraction: 0.15
   test_fraction: 0.15
+
+# ── Training: all hyperparameter grids live here ─────────────────────────────
+# Set enabled: false to skip an algorithm entirely.
+# Fixed params are passed to the constructor unchanged.
+# Grid keys are iterated via cartesian product.
+training:
+  logistic_regression:
+    enabled: true
+    fixed:
+      solver: saga
+      max_iter: 8000
+    grid:
+      C: [0.1, 0.3, 1.0, 3.0, 10.0]
+      class_weight: [null, "balanced"]   # null -> sklearn default (uniform)
+
+  random_forest:
+    enabled: true
+    fixed:
+      n_jobs: -1
+    grid:
+      n_estimators: [100, 200]
+      max_depth: [null, 15]              # null -> grow full trees
+      class_weight: ["balanced"]
+
+  xgboost:
+    enabled: true
+    fixed:
+      eval_metric: logloss
+      verbosity: 0
+    grid:
+      n_estimators: [100, 200]
+      max_depth: [3, 6]
+      learning_rate: [0.1]
+      scale_pos_weight: [3]              # ~ratio neg/pos to address class imbalance
+
+# ── Evaluation settings ───────────────────────────────────────────────────────
+evaluation:
+  threshold: 0.5             # Default decision threshold applied during training
+  selection_metric: roc_auc  # Primary metric for model selection
+  cv_folds: 5                # TimeSeriesSplit folds on X_train; set to 0 to use single val split
+  optimize_threshold: true   # Sweep threshold on val set to maximise F1
