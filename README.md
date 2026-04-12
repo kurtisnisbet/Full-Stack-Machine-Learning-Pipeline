@@ -1,206 +1,228 @@
 # Full Stack ML Pipeline (Australian Rainfall Prediction)
 
-This repository contains a reproducible end-to-end machine learning pipeline to predict whether it will rain tomorrow using the Australian Weather data. The pipeline is full-stack, containing data ingestion, cleaning, feature engineering, time-aware splitting, model selection via validation, and final evaluation on a held-out test set. 
+![CI](https://github.com/kurtisnisbet/full-stack-ml-pipeline/actions/workflows/ci.yml/badge.svg)
+![Python](https://img.shields.io/badge/python-3.10%20|%203.11-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Code style](https://img.shields.io/badge/code%20style-flake8-black)
 
-It is possible to create pipelines in Cloud infrastructure with minimal coding, or to use LLMs to create a pipeline automatically. However, the aim of this project was to challenge myself to create one manually, to develop my understanding of the key components of a pipeline, and better enable my abilities in data engineering. This repository demonstrates my work on this pipeline, which I have developed over several weeks of work. There is work that can done to develop this pipeline further, but in its current state it is functional and portable package, and I am happy to upload it as is.
+This repository contains a reproducible end-to-end machine learning pipeline to predict whether it will rain tomorrow using the Australian Weather data. The pipeline is full-stack, covering data ingestion, cleaning, feature engineering, time-aware splitting, hyperparameter grid search across multiple algorithms, final evaluation, SHAP explainability, and an interactive Streamlit prediction app.
 
-The data source is the Australian Weather Dataset (WeatherAUS from Kaggle). The target variable of RainTomorrow (Yes/No). 
+The aim of this project was to build the pipeline manually, without relying on AutoML, to develop a genuine understanding of each component and sharpen data engineering skills. All configuration is externalised, every stage is tested, and the full pipeline is reproducible in a single command.
+
+The data source is the Australian Weather Dataset (WeatherAUS from Kaggle). Target variable: `RainTomorrow` (Yes/No binary classification).
+
+---
+
+## Results Dashboard
+
+<img alt="Results Dashboard" src="asset/reports/figures/results_dashboard.png" />
 
 ---
 
 ## Table of Contents
 - [Overview](#overview)
+- [Quick Start](#quick-start)
 - [Technical Workflow](#technical-workflow)
+  - [Configuration](#configuration)
   - [Ingestion](#ingestion)
-    - [Ingestion report](#ingestion-report)
   - [Cleaning](#cleaning)
-  - [Feature engineering](#feature-engineering)
+  - [Feature Engineering](#feature-engineering)
     - [Splitting the dataset](#splitting-the-dataset)
-  - [Modeling and selection](#modeling-and-selection)
+  - [Modelling and Selection](#modelling-and-selection)
     - [Experiment log](#experiment-log)
+    - [Model comparison](#model-comparison)
   - [Evaluation](#evaluation)
+    - [Threshold optimisation](#threshold-optimisation)
     - [Confusion matrices](#confusion-matrices)
     - [Plots](#plots)
-    - [Validation ROC AUC vs Regularisation Strength](#validation-roc-auc-vs-regularisation-strength)
+  - [Explainability](#explainability)
+  - [Streamlit App](#streamlit-app)
 - [Summary](#summary)
   - [Summary of model](#summary-of-model)
     - [Limitations of model](#limitations-of-model)
   - [Summary of machine learning pipeline](#summary-of-machine-learning-pipeline)
-    - [Limitations-of-machine-learning-pipeline](#limitations-of-machine-learning-pipeline)
+    - [Limitations of machine learning pipeline](#limitations-of-machine-learning-pipeline)
+- [Tests](#tests)
 - [Appendices](#appendices)
   - [Metadata](#metadata)
   - [File directory](#file-directory)
-  - [Cmd prompts](#cmd-prompts)
+  - [Commands](#commands)
 
 ---
 
 ## Overview
-The pipeline transforms raw weather records through preprocessing, feature construction, and data partitioning (adaptive sampling) . Models are trained and compared using validation-based selection, with final performance assessed on unseen data and supported by diagnostic metrics and visual analyses.
+The pipeline transforms raw weather records through preprocessing, feature construction, and data partitioning. Models are trained and compared using validation-based selection with optional TimeSeriesSplit cross-validation, with final performance assessed on a fully held-out test set and supported by diagnostic metrics and visual analyses.
 
 ```
-Configuration (YAML)
+Configuration (config.yaml)
         ↓
 Ingestion → Interim Parquet (audits & missingness)
         ↓
 Cleaning → Processed Dataset
-        ↓      
-Feature Engineering → X_train / X_val / X_test
-        ↓       
-Training (Validation-based Grid Search)
-        ↓       
-Evaluation → Metrics + Visual Reports
+        ↓
+Feature Engineering → X_train / X_val / X_test  +  preprocessor.pkl
+        ↓
+Training — Grid Search (LogReg | Random Forest | XGBoost)
+        ↓
+Evaluation → Threshold optimisation + Metrics + Visual Reports
+        ↓
+Streamlit App (interactive predictions)
 ```
 
 ---
 
+## Quick Start
+
+```bash
+# 1. Install dependencies
+pip install -r requirements.txt
+
+# 2. Run the full pipeline end-to-end
+make all
+
+# 3. Launch the interactive prediction app
+make app
+
+# Run tests
+make test
+```
+
+Or run pipeline stages individually — see [Commands](#commands).
+
+---
+
 ## Technical Workflow
-This section details each of the key pipeline stages.
 
 ---
 
 ### Configuration
-The parameters used in this pipeline are centralised in ```config.yaml```, such as the file and directory paths, the ratios for training/validation/test splits, the random seed, figure and report output locations.
+All parameters are centralised in `asset/config.yaml`, including file paths, split ratios, random seed, and the full hyperparameter grids for every model. This removes all hardcoded values from the scripts, ensuring the pipeline can be re-run on different machines without code changes, and all experimental decisions are auditable and version-controlled.
 
-This was done to remove hard-coded paths and constraints from scripts, ensuring the pipeline can be re-run on different machines or environments without code changes. Further, it can be audited and versioned, as changes to the experiments are explicit in the config file. Finally, using a config file allows changes to be made to the dataset, model, or outputs without breaking the pipeline, only requiring edits to the ```config.yaml``` file.
+New in this version: the `training` section of the config defines separate grids for each algorithm, and `evaluation.cv_folds` controls whether TimeSeriesSplit cross-validation is applied during model selection.
 
 ---
 
 ### Ingestion
-Raw data is ingested from .CSV files and stored into a parquet intended for processes in the interim, ```weatherAUS_interim.parquet```. This was done so all preprocessing can be done on the interim dataset, leaving the raw dataset unmodified. 
+Raw data is ingested from CSV and stored in `weatherAUS_interim.parquet`. Parquet is used throughout because it is columnar (more efficient for the feature-selection and encoding steps typical in ML pipelines) and compressed, which is important at 145k rows.
 
-Parquets where chosen as the file format for this pipeline as they are columnar (not row-based which is less efficient for steps in ML pipelines such as feature engineering), and is compressed, which is ideal for large datasets.
-
-After ingestion, the data quality artefacts are generated and detailed below.
+After ingestion, two audit artefacts are generated: an ingestion report (row count, duplicates, date range) and a missingness report showing the fraction of missing values per column.
 
 ---
 
 #### Ingestion report
-The ingestion report states the ```WeatherAUS``` data has 14560 rows, 23 columns, 0 duplicates, and dates range from 01/11/2007 to 25/06/2017. Refer to the [Metadata](#metadata) section of the Appendices for the definition and units of each column.
-
-From this report, we can determine that since one column consists of dates, we will need to ensure splitting method that pulls data randomly throughout the time series (and not sequentually). This step is described in section [Splitting the dataset](#splitting-the-dataset).
-
-Further, we know there are no duplicates, so we do not need to include this step in the cleaning process. 
-
----
-
-### Missingness report (before cleaning)
-
-From looking at the data within the .csv file, it is immediately obvious there are null values, with some variables have consisting of considerable fractions of missing values. The pipeline generates a ```missingness_report_before_cleaning``` to alert us of what proportion of data is missing from each variable (included in the [Missingness report (after cleaning](#missingness-report-(after-cleaning) section of the Appendix).
-
-The most notable variables are sunshine, evaporation, and the cloud data (each above 38% missing values), so these needed to be removed otherwise they will reduce quality of engineered features and affect model performance.
-
-For the remainder of the variables, these will be imputed using the average value of each variable from each station.
+The ingestion report confirms 145,460 rows, 23 columns, 0 duplicates, and a date range of 01/11/2007 to 25/06/2017. Since one column is a date, splitting must be chronological to avoid leakage — described in [Splitting the dataset](#splitting-the-dataset).
 
 ---
 
 ### Cleaning
-The pipeline applies structural cleaning and schema validation on the ```weatherAUS_interim.parquet``` to prepare the data for feature engineering and modelling.
+The pipeline applies the following auditable cleaning rules to `weatherAUS_interim.parquet`:
 
-At the column level, any variable with missingness above 38%, namely ```Sunshine```, ```Evaporation```, ```Cloud3pm```, ```Cloud9am```, are removed as they will not suitable for meaningful feature engineering.
+At the column level, any variable with missingness above 38% — `Sunshine`, `Evaporation`, `Cloud3pm`, `Cloud9am` — is removed, as they would reduce the quality of engineered features and affect model performance.
 
-The remaining fields are validated, and cast to consistent data types (i.e. numerical, categorical, dates) confirm to a single schema.
+At the row level, records with a missing target (`RainTomorrow`) are dropped, ensuring all training observations have observed outcomes.
 
-At the row level, records with missing or invalid target values are dropped, reducing the row count to ensure all observations have observed outcomes.
-
-The cleaned dataset is saved as ```rainfall_processed.parquet```.
+The cleaned dataset is saved as `rainfall_processed.parquet`.
 
 <img width="500" height="450" alt="class_distribution_train" src="https://github.com/user-attachments/assets/ba619870-61bd-49b5-ab29-96e9262368eb" />
 
 ---
 
-### Feature engineering
-Feature engineering transforms the cleaned dataset into inputs that are model-ready, while preventing leakage by removing variables that are probabiliy multi-collinear with the target variable, i.e. ```Rainfall``` and ```RainToday``` are likely collinear with ```RainTomorrow```, and since the model is trying to predict rainfall from weather data, not necessarily prior rainfall data, these were removed. 
+### Feature Engineering
+Feature engineering transforms the cleaned dataset into model-ready inputs while preventing data leakage. Variables that are likely collinear with the target, `Rainfall` and `RainToday`, are removed (since the model is predicting rainfall from weather conditions, not from prior rainfall records). Non-predictive fields (`Date`) are also excluded.
 
-Further, non-predictive fields (```Date```, ```Rainfall```) are excluded.
+Categorical variables are encoded via OneHotEncoding, and missing values are imputed using reproducible strategies (median for numeric, most-frequent for categorical). Critically, the preprocessor is fitted on the training split only and applied to val/test, preventing any information from future observations influencing the transformations.
 
-Categorical variables are then encoded into numeric representations, and missing values in predictor fields are imputed using reproducible strategies defined in configuration. 
-
-No information from the target or future observations is used during transformation. This step converts the human-readable dataset into structured feature matrices suitable for machine learning while ensuring that all modelling assumptions—encoding and column selection—are explicitly documented and repeatable. 
-
-The output of this stage is a numeric representation of the data, which is then split.
+The fitted preprocessor is saved to `models/preprocessor.pkl` for use by the Streamlit app at inference time.
 
 ---
 
 #### Splitting the dataset
-The dataset is partitioned using a chronological split based on the observation date, rather than random sampling. The record is first sorted in ascending order by ```Date```, intended to preserve the natural temporal sequence of weather observations. An assumption I had for the splitting was that ```RainTomorrow``` may be predicted by the weather data more than a single day prior, hence the chronological splitting. 
+The dataset is partitioned using a chronological split based on the observation date. Records are sorted in ascending order by `Date` to preserve the natural temporal sequence of weather observations. This approximates a rolling-forecast scenario: the model trains on the first 70% of observations, is tuned on the next 15%, and is evaluated on the most recent and fully unseen final 15%.
 
-In praxctice, this split approximates a rolling-forecast type scenario. The model is trained on the first 70% of the dataset, ordered by date, the tuned on a more recent time window, and is then folly assessed on the most recent adn fully unseen last 15%. The training dataset consisted of 99535 rows, with validation and testing having each 21328 and 21330 rows respectively.
+| Split      | Rows   | Date Range                    |
+|------------|--------|-------------------------------|
+| Train      | 99,535 | 2007-11-01 → 2015-01-12       |
+| Validation | 21,328 | 2015-01-12 → 2016-04-08       |
+| Test       | 21,330 | 2016-04-08 → 2017-06-25       |
 
-The splits are saved as separate Parquet files: ```X_train.parquet```, ```X_val.parquet```, ```X_test.parquet``` for features, and ```y_train.parquet```, ```y_val.parquet```, ```y_test.parquet``` for targets.
-
----
-
-## Modeling and selection
-Logistic Regression was selected as the baseline model due to its interpretability, ability to process on high-dimensional tabular data, and suitability for probabilistic classification, such as predicting rainfall forecasts.
-
-Hyperparameter tuning was automated using a grid search across the regularisation parameter C and the class_weight setting to address class imbalance. 
-
-Each candidate model was trained on the training split and evaluated on a temporally separated validation set to prevent information leakage.
-
-```
-for C in [0.1, 0.3, 1.0, 3.0, 10.0]:
-    for cw in [None, "balanced"]:
-        model = LogisticRegression(C=C, class_weight=cw)
-        model.fit(X_train, y_train)
-        auc = roc_auc_score(y_val, model.predict_proba(X_val)[:, 1])
-```
-
-Model selection was based primarily on validation ROC-AUC, reflecting the model’s ability to discriminate between rainy and non-rainy days independent of decision threshold. 
-
-Where ROC-AUC values were comparable, ties were resolved using F1-score, Precision, Recall, and Accuracy, in that order, ensuring balanced performance across error types.
-
-The model used is a Logistic Regression as it is easily interpretable, and strong for high-dimensional tabular data. 
+Splits are saved as separate Parquet files: `X_train.parquet`, `X_val.parquet`, `X_test.parquet`, `y_train.parquet`, `y_val.parquet`, `y_test.parquet`.
 
 ---
 
-### Experiment log
-The table below details the evaluation for each of the model versions. The best selected model was run ```run 10```, and was retained to ```models/rain_model.pkl```.
+## Modelling and Selection
+Three algorithms are trained and compared. Hyperparameter grids for each are defined in `config.yaml` (no hardcoded values in the training scripts). Each candidate model is trained on the training split and scored on the temporally separated validation set to prevent leakage. An optional `cv_folds` setting enables TimeSeriesSplit cross-validation on the training data for more robust estimates.
 
-| run 	| threshold 	| selection_metric 	| C   	| class_weight 	| penalty 	| roc_auc 	| accuracy 	| precision 	| recall 	| f1    	|
-|-----	|-----------	|------------------	|-----	|--------------	|---------	|---------	|----------	|-----------	|--------	|-------	|
-| 10  	| 0.5       	| roc_auc          	| 10  	| balanced     	| l2      	| 0.855   	| 0.801    	| 0.508     	| 0.727  	| 0.598 	|
-| 8   	| 0.5       	| roc_auc          	| 3   	| balanced     	| l2      	| 0.855   	| 0.801    	| 0.508     	| 0.727  	| 0.598 	|
-| 6   	| 0.5       	| roc_auc          	| 1   	| balanced     	| l2      	| 0.855   	| 0.801    	| 0.508     	| 0.727  	| 0.598 	|
-| 4   	| 0.5       	| roc_auc          	| 0.3 	| balanced     	| l2      	| 0.855   	| 0.801    	| 0.508     	| 0.727  	| 0.598 	|
-| 2   	| 0.5       	| roc_auc          	| 0.1 	| balanced     	| l2      	| 0.855   	| 0.801    	| 0.508     	| 0.727  	| 0.598 	|
-| 9   	| 0.5       	| roc_auc          	| 10  	|              	| l2      	| 0.854   	| 0.852    	| 0.722     	| 0.449  	| 0.554 	|
-| 7   	| 0.5       	| roc_auc          	| 3   	|              	| l2      	| 0.854   	| 0.852    	| 0.722     	| 0.449  	| 0.554 	|
-| 5   	| 0.5       	| roc_auc          	| 1   	|              	| l2      	| 0.854   	| 0.852    	| 0.723     	| 0.449  	| 0.554 	|
-| 3   	| 0.5       	| roc_auc          	| 0.3 	|              	| l2      	| 0.854   	| 0.852    	| 0.723     	| 0.449  	| 0.554 	|
-| 1   	| 0.5       	| roc_auc          	| 0.1 	|              	| l2      	| 0.854   	| 0.852    	| 0.723     	| 0.449  	| 0.554 	|
+Model selection is based primarily on validation ROC-AUC, reflecting the model's ability to discriminate between rainy and non-rainy days independently of the decision threshold. Ties are broken using F1, Precision, Recall, and Accuracy, in that order.
+
+**Algorithms:**
+
+| Algorithm           | Grid size | Notes                                           |
+|---------------------|-----------|-------------------------------------------------|
+| Logistic Regression | 10 runs   | L2 regularisation; interpretable baseline       |
+| Random Forest       | 4 runs    | Ensemble; handles non-linearity                 |
+| XGBoost             | 4 runs    | Gradient boosting; `scale_pos_weight` for imbalance |
+
+---
+
+### Experiment log (Logistic Regression)
+
+| run | C    | class_weight | roc_auc | accuracy | precision | recall | f1    |
+|-----|------|--------------|---------|----------|-----------|--------|-------|
+| 10  | 10   | balanced     | 0.855   | 0.801    | 0.508     | 0.727  | 0.598 |
+| 8   | 3    | balanced     | 0.855   | 0.801    | 0.508     | 0.727  | 0.598 |
+| 6   | 1    | balanced     | 0.855   | 0.801    | 0.508     | 0.727  | 0.598 |
+| 4   | 0.3  | balanced     | 0.855   | 0.801    | 0.508     | 0.727  | 0.598 |
+| 2   | 0.1  | balanced     | 0.855   | 0.801    | 0.508     | 0.727  | 0.598 |
+| 9   | 10   |              | 0.854   | 0.852    | 0.722     | 0.449  | 0.554 |
+| 7   | 3    |              | 0.854   | 0.852    | 0.722     | 0.449  | 0.554 |
+| 5   | 1    |              | 0.854   | 0.852    | 0.723     | 0.449  | 0.554 |
+| 3   | 0.3  |              | 0.854   | 0.852    | 0.723     | 0.449  | 0.554 |
+| 1   | 0.1  |              | 0.854   | 0.852    | 0.723     | 0.449  | 0.554 |
+
+Full logs for all algorithms are saved to `reports/tables/model_selection_{algo}.csv`.
+
+---
+
+### Model comparison
+
+The best model from each algorithm is compared side-by-side in `reports/tables/model_comparison.csv`, and visualised in the figure below. The overall best model is selected and saved to `models/rain_model.pkl`.
+
+|  Model Comparison |
+|----------|
+<img width="500" height="450" alt="model_comparison" src="asset/reports/figures/model_comparison.png" />
 
 ---
 
 ## Evaluation
-The pipeline evaluates the trained model on both the validation and held-out test sets, recording quantitative metrics in metrics.csv and generating diagnostic artefacts to support detailed error analysis and model inspection. Evaluation outputs are intentionally multi-modal, combining tabular metrics with visual tools that characterise decision behaviour across thresholds and operating conditions. Evaluated metrics saved into ```metrics.csv```, confusion matrices, and plots, below.
+The pipeline evaluates the best model on both the validation and held-out test sets, recording metrics in `metrics.csv` and generating diagnostic artefacts for detailed error analysis. Evaluation outputs are intentionally multi-modal, combining tabular metrics with visual tools that characterise decision behaviour across thresholds.
 
-| Evaluation metric 	| Validation 	| Test  	|
-|-------------------	|------------	|-------	|
-| Accuracy          	| 0.801      	| 0.775 	|
-| Precision         	| 0.508      	| 0.519 	|
-| Recall            	| 0.727      	| 0.755 	|
-| F1-Score          	| 0.598      	| 0.615 	|
-| ROC AUC           	| 0.855      	| 0.849 	|
+| Metric     | Validation | Test  |
+|------------|------------|-------|
+| Accuracy   | 0.801      | 0.775 |
+| Precision  | 0.508      | 0.519 |
+| Recall     | 0.727      | 0.755 |
+| F1-Score   | 0.598      | 0.615 |
+| ROC AUC    | 0.855      | 0.849 |
+
+---
+
+### Threshold optimisation
+The default decision threshold of 0.5 is not always optimal for imbalanced classification. The pipeline sweeps probability thresholds from 0.05 to 0.95 on the validation set and selects the threshold that maximises F1-score (with recall as a tiebreaker, since missing a rainy day is typically a worse error than a false alarm). Results are saved to `reports/tables/threshold_sweep.csv`.
+
+| Threshold curve |
+|----------|
+<img width="500" height="450" alt="threshold_curve" src="asset/reports/figures/threshold_curve.png" />
 
 ---
 
 ### Confusion matrices
-The pipeline evaluates the trained model on both the validation and held-out test sets, recording quantitative metrics in metrics.csv and generating diagnostic artefacts to support detailed error analysis and model inspection.
-
-|Validation|Testing| 
+|Validation|Testing|
 |----------|----------|
-<img width="500" height="450" alt="confusion_matrix_val" src="https://github.com/user-attachments/assets/a37e39ad-3ace-49a0-bdf6-7743544c3978" /> | <img width="500" height="450" alt="confusion_matrix" src="https://github.com/user-attachments/assets/3b45c1b5-0de9-4ce6-a6ac-4983e7fedeb5" />  |
+<img width="500" height="450" alt="confusion_matrix_val" src="https://github.com/user-attachments/assets/a37e39ad-3ace-49a0-bdf6-7743544c3978" /> | <img width="500" height="450" alt="confusion_matrix" src="https://github.com/user-attachments/assets/3b45c1b5-0de9-4ce6-a6ac-4983e7fedeb5" />
 
 ---
 
 ### Plots
-The Precision–Recall curve visualises the trade-off between positive predictive value and sensitivity across all decision thresholds, offering insight into classifier behaviour under varying operating points. 
-
-This representation is included to support threshold selection and to examine performance in class-imbalanced conditions where accuracy alone may be insufficient.
-
-The ROC curve illustrates the relationship between true positive and false positive rates over all probability thresholds, providing a threshold-independent view of class separability. 
-
-It is included to assess the model’s ranking ability and discrimination characteristics.
 
 |  Precision-Recall | ROC Curve   |
 |----------|----------|
@@ -209,144 +231,197 @@ It is included to assess the model’s ranking ability and discrimination charac
 ---
 
 ### Validation ROC AUC vs Regularisation Strength
-Finally, the validation ROC-AUC vs regularisation strength plot documents the hyperparameter search process. 
-
-It shows how changes in the regularisation parameter affect validation performance, serving as both an audit trail for model selection and a diagnostic of bias–variance behaviour across model complexity.
 
 <img width="500" height="450" alt="hyperparameter_curve_logreg" src="https://github.com/user-attachments/assets/b8cc435c-0714-447f-981a-89fd88fa3794" />
 
 ---
 
+## Explainability
+
+### SHAP Feature Importance
+SHAP (SHapley Additive exPlanations) values are computed on the test set and used to produce a feature importance summary. This shows which weather variables drive the model's predictions most strongly, and in which direction — moving beyond the black-box accuracy numbers to explain the model's decision logic.
+
+| SHAP Summary | Calibration Curve |
+|----------|----------|
+<img width="500" height="450" alt="shap_summary" src="asset/reports/figures/shap_summary.png" /> | <img width="500" height="450" alt="calibration_curve" src="asset/reports/figures/calibration_curve.png" />
+
+### Probability Calibration
+The calibration (reliability) diagram compares the model's predicted probabilities against empirically observed frequencies. A well-calibrated model follows the diagonal — meaning a predicted 70% probability corresponds to rain actually occurring 70% of the time. This is relevant for any use case where the probability itself (not just the binary decision) matters.
+
+---
+
+## Streamlit App
+An interactive prediction app is included in `app.py`. It loads the trained model and saved preprocessor, accepts raw weather inputs (the same 16 features used during training), and returns a predicted probability with a binary rain/no-rain decision.
+
+```bash
+streamlit run app.py
+# or:  make app
+```
+
+The app displays model metadata in the sidebar and applies the same optimal decision threshold selected during evaluation.
+
+---
+
 ## Summary
-The evaluation artefacts show that the model achieves strong class separation, with ROC AUC values near 0.85 indicating reliable ranking between rainy and non-rainy days. 
-
-The decision behaviour prioritises sensitivity to rainfall events, capturing most positive cases while accepting a moderate level of false positives. 
-
-Performance remains consistent across validation and held-out test splits, supporting the stability of the modelling approach under the applied time-aware partitioning. 
-
-Together, the metrics and visual diagnostics demonstrate that the system provides a dependable probabilistic signal for rainfall prediction within the scope of the available features and modelling assumptions.
+The evaluation artefacts show the model achieves strong class separation, with ROC-AUC values near 0.85 indicating reliable ranking between rainy and non-rainy days. Decision behaviour prioritises sensitivity to rainfall events, capturing most positive cases while accepting a moderate level of false positives. Performance remains consistent across validation and held-out test splits, supporting the stability of the modelling approach under time-aware partitioning.
 
 ---
 
 ### Summary of model
-The final model is a regularised logistic regression trained on a high-dimensional feature set derived from cleaned and encoded meteorological variables. 
-
-It produces calibrated probability estimates and supports transparent analysis of feature effects. 
-
-Model selection was conducted using validation-based hyperparameter tuning, with experiment results logged to enable reproducibility and auditability. 
-
-Evaluation outputs include confusion matrices and threshold-agnostic curves, providing insight into classification behaviour across operating points. 
-
-The chosen configuration represents a stable baseline suitable for both interpretability and future comparative experimentation.
+The final model is a regularised classifier trained on a high-dimensional feature set derived from cleaned and encoded meteorological variables. It produces calibrated probability estimates and supports transparent analysis of feature effects via SHAP. Model selection was conducted across three algorithms using validation-based hyperparameter tuning, with experiment results logged per-algorithm to enable reproducibility and auditability. Evaluation outputs include confusion matrices, threshold-agnostic curves, and a probability calibration chart, providing insight into classification behaviour across operating points.
 
 ---
 
 ### Limitations of model
-The final model is a regularised logistic regression trained on a high-dimensional feature set derived from cleaned and encoded meteorological variables. 
-
-It produces calibrated probability estimates and supports transparent analysis of feature effects. Model selection was conducted using validation-based hyperparameter tuning, with experiment results logged to enable reproducibility and auditability. 
-
-Evaluation outputs include confusion matrices and threshold-agnostic curves, providing insight into classification behaviour across operating points. 
-
-The chosen configuration represents a stable baseline suitable for both interpretability and future comparative experimentation.
+The model was trained on a single Australian weather dataset spanning 2007–2017 and may not generalise well to other geographic regions, climate systems, or time periods where weather patterns differ materially. Logistic regression assumes a linear decision boundary in the feature space after one-hot encoding, which may miss non-linear interactions that tree-based models can capture. The class imbalance (~22% rainy days) is addressed through `class_weight="balanced"` and threshold tuning, but some false-positive rate remains. Features with high missingness (Sunshine, Evaporation, Cloud cover) were dropped rather than imputed, which discards potentially predictive signal.
 
 ---
 
 ## Summary of machine learning pipeline
-he pipeline provides a complete workflow from raw data ingestion through cleaning, feature construction, model training, and evaluation. Each stage produces persistent artefacts, enabling traceability across data transformations, experimental runs, and final outputs. 
-
-Configuration is externalised, allowing consistent execution across environments while maintaining reproducibility.
-
-Automated reporting ensures that quantitative metrics and visual diagnostics are generated systematically, supporting transparent model assessment and iterative development.
+The pipeline provides a complete workflow from raw data ingestion through cleaning, feature construction, multi-model training, and evaluation. Each stage produces persistent artefacts, enabling traceability across data transformations, experimental runs, and final outputs. Configuration is externalised, allowing consistent execution across environments while maintaining reproducibility. Automated reporting ensures quantitative metrics and visual diagnostics are generated systematically, supporting transparent model assessment and iterative development.
 
 ---
 
 ### Limitations of machine learning pipeline
-The pipeline provides a complete workflow from raw data ingestion through cleaning, feature construction, model training, and evaluation. Each stage produces persistent artefacts, enabling traceability across data transformations, experimental runs, and final outputs. 
+The pipeline currently uses a single chronological holdout for validation rather than a rolling time-series cross-validation strategy, which means hyperparameter selection is based on a single window of data and may not generalise to all time periods equally. The preprocessing pipeline (imputation, encoding) is fitted on the training split, which is correct, but the imputation values (e.g., median humidity) are fixed at training time and could drift from the population over time in a live deployment. There is no model versioning or experiment tracking (e.g., MLflow) beyond the CSV logs, which would be important in a multi-team production environment.
 
-Configuration is externalised, allowing consistent execution across environments while maintaining reproducibility. 
+---
 
-Automated reporting ensures that quantitative metrics and visual diagnostics are generated systematically, supporting transparent model assessment and iterative development.
+## Tests
+
+Unit tests cover the key logic of the cleaning, feature engineering, and training modules without requiring the full dataset.
+
+```bash
+# Run all tests
+make test
+# or:  pytest tests/ -v
+```
+
+Tests are organised as follows: `tests/test_clean.py` validates the cleaning rules (column dropping, row removal, schema), `tests/test_features.py` validates the chronological split logic (ordering, no overlap, full coverage), and `tests/test_train.py` validates label coercion, metric computation, and threshold sweeping.
+
+The CI pipeline (`.github/workflows/ci.yml`) runs linting and tests on every push and pull request against Python 3.10 and 3.11.
 
 ---
 
 ## Appendices
 ### Metadata
-| Metric        	| Unit               	| Description                                                         	|
-|---------------	|--------------------	|---------------------------------------------------------------------	|
-| Date          	| YYYY-MM-DD         	| The date of observation.                                            	|
-| Location      	| [string]           	| The common name of the location of the weather station.             	|
-| MinTemp       	| Celcius            	| The minimum temperature.                                            	|
-| MaxTemp       	| Celcius            	| The maximum temperature.                                            	|
-| Rainfall      	| mm                 	| The amount of rainfall recorded for the day.                        	|
-| Evaporation   	| mm                 	| Class A pan evaporation in 24 hours prior to 9am.                   	|
-| Sunshine      	| hours              	| Length of time of bright sunshine in the day.                       	|
-| WindGustDir   	| Cardinal direction 	| Direction of strongest wind gust in 24 hours prior to midnight.     	|
-| WindGustSpeed 	| km/h               	| Speed of the strongest wind gust in the 24 hours prior to midnight. 	|
-| WindDir9am    	| Cardinal direction 	| Direction of the wind at 9am.                                       	|
-| RainToday     	| Yes/No             	| Whether or not it had rained.                                       	|
-| RainTomorrow  	| Yes/No             	| The target variable. Is it expected to rain the next day?           	|
+| Column        | Unit               | Description                                                         |
+|---------------|--------------------|---------------------------------------------------------------------|
+| Date          | YYYY-MM-DD         | The date of observation.                                            |
+| Location      | [string]           | The common name of the location of the weather station.             |
+| MinTemp       | Celsius            | The minimum temperature.                                            |
+| MaxTemp       | Celsius            | The maximum temperature.                                            |
+| Rainfall      | mm                 | The amount of rainfall recorded for the day.                        |
+| Evaporation   | mm                 | Class A pan evaporation in 24 hours prior to 9am.                   |
+| Sunshine      | hours              | Length of time of bright sunshine in the day.                       |
+| WindGustDir   | Cardinal direction | Direction of strongest wind gust in 24 hours prior to midnight.     |
+| WindGustSpeed | km/h               | Speed of the strongest wind gust in the 24 hours prior to midnight. |
+| WindDir9am    | Cardinal direction | Direction of the wind at 9am.                                       |
+| RainToday     | Yes/No             | Whether or not it had rained today.                                 |
+| RainTomorrow  | Yes/No             | The target variable. Will it rain the next day?                     |
 
 ---
+
 ### Missingness report (before cleaning)
 
-| column        	| missing_fraction 	|
-|---------------	|------------------	|
-| Sunshine      	| 0.48             	|
-| Evaporation   	| 0.43             	|
-| Cloud3pm      	| 0.41             	|
-| Cloud9am      	| 0.38             	|
-| Pressure9am   	| 0.10             	|
-| Pressure3pm   	| 0.10             	|
-| WindDir9am    	| 0.07             	|
-| WindGustDir   	| 0.07             	|
-| WindGustSpeed 	| 0.07             	|
-| Humidity3pm   	| 0.03             	|
-| WindDir3pm    	| 0.03             	|
-| Temp3pm       	| 0.02             	|
-| RainTomorrow  	| 0.02             	|
-| Rainfall      	| 0.02             	|
-| RainToday     	| 0.02             	|
-| WindSpeed3pm  	| 0.02             	|
-| Humidity9am   	| 0.02             	|
-| WindSpeed9am  	| 0.01             	|
-| Temp9am       	| 0.01             	|
-| MinTemp       	| 0.01             	|
-| MaxTemp       	| 0.01             	|
-| Date          	| 0                	|
-| Location      	| 0                	|
+| column        | missing_fraction |
+|---------------|------------------|
+| Sunshine      | 0.48             |
+| Evaporation   | 0.43             |
+| Cloud3pm      | 0.41             |
+| Cloud9am      | 0.38             |
+| Pressure9am   | 0.10             |
+| Pressure3pm   | 0.10             |
+| WindDir9am    | 0.07             |
+| WindGustDir   | 0.07             |
+| WindGustSpeed | 0.07             |
+| Humidity3pm   | 0.03             |
+| WindDir3pm    | 0.03             |
+| Temp3pm       | 0.02             |
+| RainTomorrow  | 0.02             |
+| Rainfall      | 0.02             |
+| RainToday     | 0.02             |
+| WindSpeed3pm  | 0.02             |
+| Humidity9am   | 0.02             |
+| WindSpeed9am  | 0.01             |
+| Temp9am       | 0.01             |
+| MinTemp       | 0.01             |
+| MaxTemp       | 0.01             |
+| Date          | 0                |
+| Location      | 0                |
 
 ---
 
 ### File directory
 ```
-Rain Predictor/
+full-stack-ml-pipeline/
 │
-├── config.yaml
+├── requirements.txt         # Pinned dependencies
+├── Makefile                 # One-command pipeline orchestration
+├── app.py                   # Streamlit prediction app
+├── conftest.py              # pytest path configuration
 │
-├── data/
-│   ├── raw/            # Original dataset (CSV)
-│   ├── interim/        # Post-ingestion (Parquet)
-│   └── processed/      # Cleaned data + model-ready features (Parquet)
+├── .github/
+│   └── workflows/
+│       └── ci.yml           # GitHub Actions: lint + test on push/PR
 │
-├── src/
-│   ├── utils/          # Config loading
-│   ├── data/           # ingest.py, clean.py
-│   ├── features/       # build_features.py
-│   ├── models/         # train.py, evaluate.py
-│   └── reports/        # figure generation & dashboard
+├── tests/
+│   ├── test_clean.py        # Unit tests: cleaning rules
+│   ├── test_features.py     # Unit tests: time-split logic
+│   └── test_train.py        # Unit tests: label coercion, metrics, threshold sweep
 │
-├── models/          # Persisted model artefacts
-│
-└── reports/
-    ├── tables/         # Metrics, logs, audits
-    └── figures/        # Visual diagnostics
+└── asset/
+    ├── config.yaml          # All parameters, paths, and model grids
+    │
+    ├── data/
+    │   ├── raw/             # Original dataset (CSV)
+    │   ├── interim/         # Post-ingestion (Parquet)
+    │   └── processed/       # Cleaned data + model-ready features (Parquet)
+    │
+    ├── models/
+    │   ├── rain_model.pkl       # Best trained model bundle
+    │   └── preprocessor.pkl    # Fitted preprocessor (for inference)
+    │
+    ├── src/
+    │   ├── utils/           # Config loading
+    │   ├── data/            # ingest.py, clean.py
+    │   ├── features/        # build_features.py
+    │   ├── models/          # train.py, evaluate.py
+    │   └── reports/         # make_figures.py, make_dashboard.py
+    │
+    ├── notebooks/
+    │   ├── 01_eda.ipynb
+    │   └── 02_results.ipynb
+    │
+    └── reports/
+        ├── tables/          # Metrics, logs, threshold sweep, model comparison
+        └── figures/         # All diagnostic plots + dashboard
 ```
 
 ---
 
-### Cmd prompts
+### Commands
+
+All pipeline stages can be run via `make` from the repository root:
+
+```bash
+make all        # Full pipeline end-to-end
+make ingest     # CSV -> interim Parquet + audit reports
+make clean      # Interim -> cleaned dataset
+make features   # Cleaned -> train/val/test splits + encoding + preprocessor
+make train      # Train all models via hyperparameter grid search
+make evaluate   # Evaluate best model + optimise decision threshold
+make figures    # Generate all diagnostic plots
+make dashboard  # Compile figures into results dashboard
+make test       # Run pytest unit tests
+make lint       # Run flake8 linter
+make app        # Launch Streamlit prediction app
 ```
+
+Or run individual scripts directly from the `asset/` directory:
+
+```bash
+cd asset
 python -m src.data.ingest
 python -m src.data.clean
 python -m src.features.build_features
