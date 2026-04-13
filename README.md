@@ -1,10 +1,5 @@
 # Full Stack ML Pipeline (Australian Rainfall Prediction)
 
-![CI](https://github.com/kurtisnisbet/full-stack-ml-pipeline/actions/workflows/ci.yml/badge.svg)
-![Python](https://img.shields.io/badge/python-3.10%20|%203.11-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
-![Code style](https://img.shields.io/badge/code%20style-flake8-black)
-
 This repository contains a reproducible end-to-end machine learning pipeline to predict whether it will rain tomorrow using the Australian Weather data. The pipeline is full-stack, covering data ingestion, cleaning, feature engineering, time-aware splitting, hyperparameter grid search across multiple algorithms, final evaluation, SHAP explainability, and an interactive Streamlit prediction app.
 
 The aim of this project was to build the pipeline manually, without relying on AutoML, to develop a genuine understanding of each component and sharpen data engineering skills. All configuration is externalised, every stage is tested, and the full pipeline is reproducible in a single command.
