@@ -13,12 +13,6 @@ The data source is the Australian Weather Dataset (WeatherAUS from Kaggle). Targ
 
 ---
 
-## Results Dashboard
-
-<img alt="Results Dashboard" src="asset/reports/figures/results_dashboard.png" />
-
----
-
 ## Table of Contents
 - [Overview](#overview)
 - [Quick Start](#quick-start)
@@ -34,7 +28,6 @@ The data source is the Australian Weather Dataset (WeatherAUS from Kaggle). Targ
   - [Evaluation](#evaluation)
     - [Threshold optimisation](#threshold-optimisation)
     - [Confusion matrices](#confusion-matrices)
-    - [Plots](#plots)
   - [Explainability](#explainability)
   - [Streamlit App](#streamlit-app)
 - [Summary](#summary)
@@ -53,21 +46,7 @@ The data source is the Australian Weather Dataset (WeatherAUS from Kaggle). Targ
 ## Overview
 The pipeline transforms raw weather records through preprocessing, feature construction, and data partitioning. Models are trained and compared using validation-based selection with optional TimeSeriesSplit cross-validation, with final performance assessed on a fully held-out test set and supported by diagnostic metrics and visual analyses.
 
-```
-Configuration (config.yaml)
-        ↓
-Ingestion → Interim Parquet (audits & missingness)
-        ↓
-Cleaning → Processed Dataset
-        ↓
-Feature Engineering → X_train / X_val / X_test  +  preprocessor.pkl
-        ↓
-Training — Grid Search (LogReg | Random Forest | XGBoost)
-        ↓
-Evaluation → Threshold optimisation + Metrics + Visual Reports
-        ↓
-Streamlit App (interactive predictions)
-```
+<img alt="Pipeline Diagram" src="asset/reports/figures/rain_predictor_pipeline_with_config.png" />
 
 ---
 
@@ -123,8 +102,6 @@ At the row level, records with a missing target (`RainTomorrow`) are dropped, en
 
 The cleaned dataset is saved as `rainfall_processed.parquet`.
 
-<img width="500" height="450" alt="class_distribution_train" src="https://github.com/user-attachments/assets/ba619870-61bd-49b5-ab29-96e9262368eb" />
-
 ---
 
 ### Feature Engineering
@@ -156,10 +133,10 @@ Model selection is based primarily on validation ROC-AUC, reflecting the model's
 
 **Algorithms:**
 
-| Algorithm           | Grid size | Notes                                           |
-|---------------------|-----------|-------------------------------------------------|
-| Logistic Regression | 10 runs   | L2 regularisation; interpretable baseline       |
-| Random Forest       | 4 runs    | Ensemble; handles non-linearity                 |
+| Algorithm           | Grid size | Notes                                               |
+|---------------------|-----------|-----------------------------------------------------|
+| Logistic Regression | 10 runs   | L2 regularisation; interpretable baseline           |
+| Random Forest       | 4 runs    | Ensemble; handles non-linearity                     |
 | XGBoost             | 4 runs    | Gradient boosting; `scale_pos_weight` for imbalance |
 
 ---
@@ -185,11 +162,11 @@ Full logs for all algorithms are saved to `reports/tables/model_selection_{algo}
 
 ### Model comparison
 
-The best model from each algorithm is compared side-by-side in `reports/tables/model_comparison.csv`, and visualised in the figure below. The overall best model is selected and saved to `models/rain_model.pkl`.
+The best model from each algorithm is compared side-by-side in `reports/tables/model_comparison.csv`. The chart below shows validation ROC-AUC alongside class distribution and the regularisation sweep for logistic regression. The overall best model is selected and saved to `models/rain_model.pkl`.
 
-|  Model Comparison |
-|----------|
-<img width="500" height="450" alt="model_comparison" src="asset/reports/figures/model_comparison.png" />
+<img alt="Data and Model Comparison" src="asset/reports/figures/dashboard_data.png" />
+
+The training set is class-imbalanced at roughly 78% No Rain / 22% Rain. XGBoost achieves the highest ROC-AUC (0.874) on the validation set, followed closely by Random Forest (0.867) and Logistic Regression (0.855). All three algorithms benefit from class-weighting or `scale_pos_weight`, which corrects for the imbalance during training.
 
 ---
 
@@ -204,49 +181,24 @@ The pipeline evaluates the best model on both the validation and held-out test s
 | F1-Score   | 0.598      | 0.615 |
 | ROC AUC    | 0.855      | 0.849 |
 
+<img alt="Evaluation Curves" src="asset/reports/figures/dashboard_evaluation.png" />
+
+The ROC-AUC of 0.849 on the held-out test set confirms the model generalises well to unseen data. The Precision-Recall curve (AP = 0.629) shows meaningful lift over a random baseline despite the class imbalance. The confusion matrix reflects the model's high-recall operating point — it catches most rainy days at the cost of some false alarms, which is the preferred trade-off for a weather alert use case.
+
 ---
 
 ### Threshold optimisation
 The default decision threshold of 0.5 is not always optimal for imbalanced classification. The pipeline sweeps probability thresholds from 0.05 to 0.95 on the validation set and selects the threshold that maximises F1-score (with recall as a tiebreaker, since missing a rainy day is typically a worse error than a false alarm). Results are saved to `reports/tables/threshold_sweep.csv`.
 
-| Threshold curve |
-|----------|
-<img width="500" height="450" alt="threshold_curve" src="asset/reports/figures/threshold_curve.png" />
-
----
-
-### Confusion matrices
-|Validation|Testing|
-|----------|----------|
-<img width="500" height="450" alt="confusion_matrix_val" src="https://github.com/user-attachments/assets/a37e39ad-3ace-49a0-bdf6-7743544c3978" /> | <img width="500" height="450" alt="confusion_matrix" src="https://github.com/user-attachments/assets/3b45c1b5-0de9-4ce6-a6ac-4983e7fedeb5" />
-
----
-
-### Plots
-
-|  Precision-Recall | ROC Curve   |
-|----------|----------|
-<img width="500" height="450" alt="pr_curve_test" src="https://github.com/user-attachments/assets/a44d332a-686c-4b07-aec8-8d8aa051c116" /> | <img width="500" height="450" alt="roc_curve_test" src="https://github.com/user-attachments/assets/2095c2ce-23aa-46ba-ada4-ca9ea6929105" />
-
----
-
-### Validation ROC AUC vs Regularisation Strength
-
-<img width="500" height="450" alt="hyperparameter_curve_logreg" src="https://github.com/user-attachments/assets/b8cc435c-0714-447f-981a-89fd88fa3794" />
-
 ---
 
 ## Explainability
 
-### SHAP Feature Importance
-SHAP (SHapley Additive exPlanations) values are computed on the test set and used to produce a feature importance summary. This shows which weather variables drive the model's predictions most strongly, and in which direction — moving beyond the black-box accuracy numbers to explain the model's decision logic.
+SHAP (SHapley Additive exPlanations) values are computed on the test set and used to produce a feature importance summary. This shows which weather variables drive the model's predictions most strongly, and in which direction — moving beyond accuracy numbers to explain the model's decision logic. The calibration (reliability) diagram compares predicted probabilities against observed frequencies; a well-calibrated model follows the diagonal, meaning a predicted 70% probability corresponds to rain actually occurring ~70% of the time.
 
-| SHAP Summary | Calibration Curve |
-|----------|----------|
-<img width="500" height="450" alt="shap_summary" src="asset/reports/figures/shap_summary.png" /> | <img width="500" height="450" alt="calibration_curve" src="asset/reports/figures/calibration_curve.png" />
+<img alt="Explainability and Calibration" src="asset/reports/figures/dashboard_explainability.png" />
 
-### Probability Calibration
-The calibration (reliability) diagram compares the model's predicted probabilities against empirically observed frequencies. A well-calibrated model follows the diagonal — meaning a predicted 70% probability corresponds to rain actually occurring 70% of the time. This is relevant for any use case where the probability itself (not just the binary decision) matters.
+Humidity at 3pm is the single strongest predictor — high afternoon humidity sharply increases rain probability. Wind gust speed and afternoon temperature also contribute meaningfully. The calibration curve sits close to the diagonal across the mid-range, with some overconfidence at high predicted probabilities. The threshold sweep confirms the optimal operating point is below 0.5, consistent with the class imbalance and the preference for recall over precision.
 
 ---
 
@@ -273,7 +225,7 @@ The final model is a regularised classifier trained on a high-dimensional featur
 ---
 
 ### Limitations of model
-The model was trained on a single Australian weather dataset spanning 2007–2017 and may not generalise well to other geographic regions, climate systems, or time periods where weather patterns differ materially. Logistic regression assumes a linear decision boundary in the feature space after one-hot encoding, which may miss non-linear interactions that tree-based models can capture. The class imbalance (~22% rainy days) is addressed through `class_weight="balanced"` and threshold tuning, but some false-positive rate remains. Features with high missingness (Sunshine, Evaporation, Cloud cover) were dropped rather than imputed, which discards potentially predictive signal.
+The model was trained on a single Australian weather dataset spanning 2007–2017 and may not generalise well to other geographic regions, climate systems, or time periods where weather patterns differ materially. The class imbalance (~22% rainy days) is addressed through class weighting and threshold tuning, but some false-positive rate remains. Features with high missingness (Sunshine, Evaporation, Cloud cover) were dropped rather than imputed, which discards potentially predictive signal.
 
 ---
 
@@ -283,7 +235,7 @@ The pipeline provides a complete workflow from raw data ingestion through cleani
 ---
 
 ### Limitations of machine learning pipeline
-The pipeline currently uses a single chronological holdout for validation rather than a rolling time-series cross-validation strategy, which means hyperparameter selection is based on a single window of data and may not generalise to all time periods equally. The preprocessing pipeline (imputation, encoding) is fitted on the training split, which is correct, but the imputation values (e.g., median humidity) are fixed at training time and could drift from the population over time in a live deployment. There is no model versioning or experiment tracking (e.g., MLflow) beyond the CSV logs, which would be important in a multi-team production environment.
+The pipeline currently uses a single chronological holdout for validation rather than a rolling time-series cross-validation strategy, which means hyperparameter selection is based on a single window of data and may not generalise to all time periods equally. The preprocessing pipeline (imputation, encoding) is fitted on the training split, which is correct, but the imputation values are fixed at training time and could drift from the population over time in a live deployment. There is no model versioning or experiment tracking (e.g., MLflow) beyond the CSV logs, which would be important in a multi-team production environment.
 
 ---
 
@@ -395,7 +347,7 @@ full-stack-ml-pipeline/
     │
     └── reports/
         ├── tables/          # Metrics, logs, threshold sweep, model comparison
-        └── figures/         # All diagnostic plots + dashboard
+        └── figures/         # All diagnostic plots + dashboards
 ```
 
 ---
@@ -412,7 +364,7 @@ make features   # Cleaned -> train/val/test splits + encoding + preprocessor
 make train      # Train all models via hyperparameter grid search
 make evaluate   # Evaluate best model + optimise decision threshold
 make figures    # Generate all diagnostic plots
-make dashboard  # Compile figures into results dashboard
+make dashboard  # Compile figures into strip dashboards
 make test       # Run pytest unit tests
 make lint       # Run flake8 linter
 make app        # Launch Streamlit prediction app
