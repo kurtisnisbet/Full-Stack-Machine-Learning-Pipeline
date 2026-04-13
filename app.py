@@ -32,7 +32,7 @@ PREPROCESSOR_PATH = ASSET_DIR / "models" / "preprocessor.pkl"
 METRICS_PATH     = ASSET_DIR / "reports" / "tables" / "metrics.csv"
 
 
-# ── Load artifacts (cached so they're only read once) ─────────────────────────
+# ── Load artifacts ─────────────────────────
 @st.cache_resource
 def load_artifacts():
     if not MODEL_PATH.exists():
@@ -48,7 +48,7 @@ bundle, prep_bundle = load_artifacts()
 
 
 # ── Header ────────────────────────────────────────────────────────────────────
-st.title("🌧️ Australian Rain Predictor")
+st.title("Australian Rain Predictor")
 st.markdown(
     "Enter today's weather observations and the model will estimate the "
     "probability of rain tomorrow."
@@ -181,7 +181,7 @@ st.divider()
 
 
 # ── Prediction ────────────────────────────────────────────────────────────────
-if st.button("🔮 Predict Rain Tomorrow", type="primary", use_container_width=True):
+if st.button("Predict Rain Tomorrow", type="primary", use_container_width=True):
 
     # Build input DataFrame with correct column order expected by preprocessor
     all_input_cols = numeric_cols + categorical_cols
@@ -202,9 +202,9 @@ if st.button("🔮 Predict Rain Tomorrow", type="primary", use_container_width=T
 
         st.divider()
         if prediction == "Rain":
-            st.error(f"### 🌧️ Rain Tomorrow — {prob * 100:.1f}% probability")
+            st.error(f"### Rain Tomorrow — {prob * 100:.1f}% probability")
         else:
-            st.success(f"### ☀️ No Rain Tomorrow — {prob * 100:.1f}% probability")
+            st.success(f"### No Rain Tomorrow — {prob * 100:.1f}% probability")
 
         # Probability bar
         st.progress(prob, text=f"Rain probability: {prob:.1%}")
