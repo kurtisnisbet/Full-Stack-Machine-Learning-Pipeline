@@ -1,0 +1,3 @@
+run,algorithm,threshold,selection_metric,n_estimators,max_depth,class_weight,cv_roc_auc,roc_auc,accuracy,precision,recall,f1
+2,random_forest,0.5,roc_auc,100,20,balanced,,0.8668743286003711,0.8485558889722431,0.6463700234192038,0.5703788748564868,0.6060014637716516
+1,random_forest,0.5,roc_auc,100,10,balanced,,0.8486526618930059,0.8083739684921231,0.5235583684950773,0.6838117106773823,0.5930498854923828
