@@ -1,10 +1,15 @@
 # Full Stack ML Pipeline (Australian Rainfall Prediction)
 
-This repository contains a reproducible end-to-end machine learning pipeline to predict whether it will rain tomorrow using the Australian Weather data. The pipeline is full-stack, covering data ingestion, cleaning, feature engineering, time-aware splitting, hyperparameter grid search across multiple algorithms, final evaluation, SHAP explainability, and an interactive Streamlit prediction app.
+![Python](https://img.shields.io/badge/python-3.10%20|%203.11-blue)
+![Code style](https://img.shields.io/badge/code%20style-flake8-black)
 
-The aim of this project was to build the pipeline manually, without relying on AutoML, to develop a genuine understanding of each component and sharpen data engineering skills. All configuration is externalised, every stage is tested, and the full pipeline is reproducible in a single command.
+A reproducible end-to-end machine learning pipeline predicting whether it will rain tomorrow in Australia, covering data ingestion, cleaning, feature engineering, time-aware splitting, hyperparameter search across three algorithms, threshold optimisation, SHAP explainability, and an interactive Streamlit prediction app.
 
-The data source is the Australian Weather Dataset (WeatherAUS from Kaggle). Target variable: `RainTomorrow` (Yes/No binary classification).
+The pipeline is built manually rather than with AutoML, to develop a working understanding of each component. All configuration is externalised to a single YAML file, the core stages are unit tested (33 tests, run in CI), and the full pipeline is reproducible with one command.
+
+**Result:** XGBoost achieves ROC-AUC 0.874 on a fully held-out, temporally separated test set, with an F1 of 0.66 at the optimised decision threshold.
+
+**Data:** Australian Weather Dataset (weatherAUS, Kaggle), 145k daily observations from 2007–2017. Target: `RainTomorrow` (Yes/No).
 
 ---
 
@@ -22,14 +27,10 @@ The data source is the Australian Weather Dataset (WeatherAUS from Kaggle). Targ
     - [Model comparison](#model-comparison)
   - [Evaluation](#evaluation)
     - [Threshold optimisation](#threshold-optimisation)
-    - [Confusion matrices](#confusion-matrices)
   - [Explainability](#explainability)
   - [Streamlit App](#streamlit-app)
 - [Summary](#summary)
-  - [Summary of model](#summary-of-model)
-    - [Limitations of model](#limitations-of-model)
-  - [Summary of machine learning pipeline](#summary-of-machine-learning-pipeline)
-    - [Limitations of machine learning pipeline](#limitations-of-machine-learning-pipeline)
+  - [Limitations](#limitations)
 - [Tests](#tests)
 - [Appendices](#appendices)
   - [Metadata](#metadata)
@@ -48,7 +49,9 @@ The pipeline transforms raw weather records through preprocessing, feature const
 ## Quick Start
 
 ```bash
-# 1. Install dependencies
+# 0. Download weatherAUS.csv from Kaggle and place it in asset/data/raw/
+
+# 1. Install dependencies (Python 3.10 or 3.11)
 pip install -r requirements.txt
 
 # 2. Run the full pipeline end-to-end
@@ -70,9 +73,7 @@ Or run pipeline stages individually — see [Commands](#commands).
 ---
 
 ### Configuration
-All parameters are centralised in `asset/config.yaml`, including file paths, split ratios, random seed, and the full hyperparameter grids for every model. This removes all hardcoded values from the scripts, ensuring the pipeline can be re-run on different machines without code changes, and all experimental decisions are auditable and version-controlled.
-
-New in this version: the `training` section of the config defines separate grids for each algorithm, and `evaluation.cv_folds` controls whether TimeSeriesSplit cross-validation is applied during model selection.
+All parameters are centralised in `asset/config.yaml`: file paths, split ratios, random seed, per-algorithm hyperparameter grids, and evaluation settings (including `evaluation.cv_folds`, which enables TimeSeriesSplit cross-validation during model selection). No values are hardcoded in the scripts, so the pipeline can be re-run on different machines without code changes and every experimental decision is auditable and version-controlled.
 
 ---
 
@@ -136,22 +137,14 @@ Model selection is based primarily on validation ROC-AUC, reflecting the model's
 
 ---
 
-### Experiment log (Logistic Regression)
+### Experiment log (Logistic Regression, top runs)
 
 | run | C    | class_weight | roc_auc | accuracy | precision | recall | f1    |
 |-----|------|--------------|---------|----------|-----------|--------|-------|
-| 10  | 10   | balanced     | 0.855   | 0.801    | 0.508     | 0.727  | 0.598 |
-| 8   | 3    | balanced     | 0.855   | 0.801    | 0.508     | 0.727  | 0.598 |
-| 6   | 1    | balanced     | 0.855   | 0.801    | 0.508     | 0.727  | 0.598 |
-| 4   | 0.3  | balanced     | 0.855   | 0.801    | 0.508     | 0.727  | 0.598 |
-| 2   | 0.1  | balanced     | 0.855   | 0.801    | 0.508     | 0.727  | 0.598 |
-| 9   | 10   |              | 0.854   | 0.852    | 0.722     | 0.449  | 0.554 |
-| 7   | 3    |              | 0.854   | 0.852    | 0.722     | 0.449  | 0.554 |
+| 4   | 0.3  | balanced     | 0.854   | 0.799    | 0.505     | 0.723  | 0.594 |
 | 5   | 1    |              | 0.854   | 0.852    | 0.723     | 0.449  | 0.554 |
-| 3   | 0.3  |              | 0.854   | 0.852    | 0.723     | 0.449  | 0.554 |
-| 1   | 0.1  |              | 0.854   | 0.852    | 0.723     | 0.449  | 0.554 |
 
-Full logs for all algorithms are saved to `reports/tables/model_selection_{algo}.csv`.
+The regularisation sweep is flat — validation ROC-AUC is insensitive to C across two orders of magnitude, while `class_weight="balanced"` trades precision for recall as expected. Full logs for all algorithms are saved to `reports/tables/model_selection_{algo}.csv`.
 
 ---
 
@@ -161,29 +154,29 @@ The best model from each algorithm is compared side-by-side in `reports/tables/m
 
 <img alt="Data and Model Comparison" src="asset/reports/figures/dashboard_data.png" />
 
-The training set is class-imbalanced at roughly 78% No Rain / 22% Rain. XGBoost achieves the highest ROC-AUC (0.874) on the validation set, followed closely by Random Forest (0.867) and Logistic Regression (0.855). All three algorithms benefit from class-weighting or `scale_pos_weight`, which corrects for the imbalance during training.
+The training set is class-imbalanced at roughly 78% No Rain / 22% Rain. XGBoost achieves the highest validation ROC-AUC (0.874), followed by Random Forest (0.867) and Logistic Regression (0.854). All three algorithms benefit from class-weighting or `scale_pos_weight`, which corrects for the imbalance during training. **The selected final model is XGBoost** (100 trees, max_depth 6, learning_rate 0.1, scale_pos_weight 3), saved to `models/rain_model.pkl`.
 
 ---
 
 ## Evaluation
-The pipeline evaluates the best model on both the validation and held-out test sets, recording metrics in `metrics.csv` and generating diagnostic artefacts for detailed error analysis. Evaluation outputs are intentionally multi-modal, combining tabular metrics with visual tools that characterise decision behaviour across thresholds.
+The best model (XGBoost) is evaluated on both the validation and held-out test sets, with metrics recorded in `metrics.csv` and diagnostic artefacts generated for error analysis.
 
-| Metric     | Validation | Test  |
-|------------|------------|-------|
-| Accuracy   | 0.801      | 0.775 |
-| Precision  | 0.508      | 0.519 |
-| Recall     | 0.727      | 0.755 |
-| F1-Score   | 0.598      | 0.615 |
-| ROC AUC    | 0.855      | 0.849 |
+| Metric (threshold 0.5) | Validation | Test  |
+|------------------------|------------|-------|
+| Accuracy               | 0.835      | 0.812 |
+| Precision              | 0.580      | 0.582 |
+| Recall                 | 0.688      | 0.744 |
+| F1-Score               | 0.630      | 0.653 |
+| ROC AUC                | 0.874      | 0.874 |
 
 <img alt="Evaluation Curves" src="asset/reports/figures/dashboard_evaluation.png" />
 
-The ROC-AUC of 0.849 on the held-out test set confirms the model generalises well to unseen data. The Precision-Recall curve (AP = 0.629) shows meaningful lift over a random baseline despite the class imbalance. The confusion matrix reflects the model's high-recall operating point — it catches most rainy days at the cost of some false alarms, which is the preferred trade-off for a weather alert use case.
+Test ROC-AUC of 0.874 — essentially identical to validation — indicates the model generalises to a fully unseen, later time period. The Precision-Recall curve (AP = 0.729) shows substantial lift over the 0.24 positive-class baseline. The confusion matrix reflects a recall-leaning operating point: the model catches most rainy days at the cost of some false alarms, the preferred trade-off for a weather alert use case.
 
 ---
 
 ### Threshold optimisation
-The default decision threshold of 0.5 is not always optimal for imbalanced classification. The pipeline sweeps probability thresholds from 0.05 to 0.95 on the validation set and selects the threshold that maximises F1-score (with recall as a tiebreaker, since missing a rainy day is typically a worse error than a false alarm). Results are saved to `reports/tables/threshold_sweep.csv`.
+The default decision threshold of 0.5 is not always optimal for imbalanced classification. The pipeline sweeps probability thresholds from 0.05 to 0.95 on the validation set and selects the one maximising F1 (recall as tiebreaker). The optimal threshold is 0.55, which on the test set lifts precision from 0.582 to 0.618 and F1 from 0.653 to 0.657, trading some recall (0.744 → 0.701). The Streamlit app applies this threshold at inference. Results are saved to `reports/tables/threshold_sweep.csv`.
 
 ---
 
@@ -193,12 +186,12 @@ SHAP (SHapley Additive exPlanations) values are computed on the test set and use
 
 <img alt="Explainability and Calibration" src="asset/reports/figures/dashboard_explainability.png" />
 
-Humidity at 3pm is the single strongest predictor — high afternoon humidity sharply increases rain probability. Wind gust speed and afternoon temperature also contribute meaningfully. The calibration curve sits close to the diagonal across the mid-range, with some overconfidence at high predicted probabilities. The threshold sweep confirms the optimal operating point is below 0.5, consistent with the class imbalance and the preference for recall over precision.
+Humidity at 3pm is the single strongest predictor — high afternoon humidity sharply increases rain probability. Wind gust speed and afternoon temperature also contribute meaningfully. The calibration curve sits close to the diagonal across the mid-range, with some overconfidence at high predicted probabilities, so raw probabilities at the upper end should be read with that caveat.
 
 ---
 
 ## Streamlit App
-An interactive prediction app is included in `app.py`. It loads the trained model and saved preprocessor, accepts raw weather inputs (the same 16 features used during training), and returns a predicted probability with a binary rain/no-rain decision.
+An interactive prediction app is included in `app.py`. It loads the trained model and saved preprocessor, accepts the same raw weather inputs used during training, and returns a predicted probability with a binary rain/no-rain decision.
 
 ```bash
 streamlit run app.py
@@ -210,33 +203,21 @@ The app displays model metadata in the sidebar and applies the same optimal deci
 ---
 
 ## Summary
-The evaluation artefacts show the model achieves strong class separation, with ROC-AUC values near 0.85 indicating reliable ranking between rainy and non-rainy days. Decision behaviour prioritises sensitivity to rainfall events, capturing most positive cases while accepting a moderate level of false positives. Performance remains consistent across validation and held-out test splits, supporting the stability of the modelling approach under time-aware partitioning.
+The final XGBoost model achieves strong class separation (ROC-AUC 0.874 on the held-out test set) with performance consistent between validation and test, supporting the stability of the approach under time-aware partitioning. The operating point favours recall, capturing most rainy days while accepting a moderate false-alarm rate. Every pipeline stage produces persistent artefacts — audit reports, experiment logs, metrics tables, and diagnostic figures — so all data transformations and modelling decisions are traceable from config to output.
 
 ---
 
-### Summary of model
-The final model is a regularised classifier trained on a high-dimensional feature set derived from cleaned and encoded meteorological variables. It produces calibrated probability estimates and supports transparent analysis of feature effects via SHAP. Model selection was conducted across three algorithms using validation-based hyperparameter tuning, with experiment results logged per-algorithm to enable reproducibility and auditability. Evaluation outputs include confusion matrices, threshold-agnostic curves, and a probability calibration chart, providing insight into classification behaviour across operating points.
+### Limitations
 
----
+**Model.** Trained on a single Australian dataset (2007–2017); it may not generalise to other regions, climate systems, or future periods where weather patterns differ. Predicted probabilities show some overconfidence at the high end, so they should not be treated as fully calibrated. Features with high missingness (Sunshine, Evaporation, Cloud cover) were dropped rather than imputed, discarding potentially predictive signal — notably, sunshine and cloud cover are physically plausible rain predictors.
 
-### Limitations of model
-The model was trained on a single Australian weather dataset spanning 2007–2017 and may not generalise well to other geographic regions, climate systems, or time periods where weather patterns differ materially. The class imbalance (~22% rainy days) is addressed through class weighting and threshold tuning, but some false-positive rate remains. Features with high missingness (Sunshine, Evaporation, Cloud cover) were dropped rather than imputed, which discards potentially predictive signal.
-
----
-
-## Summary of machine learning pipeline
-The pipeline provides a complete workflow from raw data ingestion through cleaning, feature construction, multi-model training, and evaluation. Each stage produces persistent artefacts, enabling traceability across data transformations, experimental runs, and final outputs. Configuration is externalised, allowing consistent execution across environments while maintaining reproducibility. Automated reporting ensures quantitative metrics and visual diagnostics are generated systematically, supporting transparent model assessment and iterative development.
-
----
-
-### Limitations of machine learning pipeline
-The pipeline currently uses a single chronological holdout for validation rather than a rolling time-series cross-validation strategy, which means hyperparameter selection is based on a single window of data and may not generalise to all time periods equally. The preprocessing pipeline (imputation, encoding) is fitted on the training split, which is correct, but the imputation values are fixed at training time and could drift from the population over time in a live deployment. There is no model versioning or experiment tracking (e.g., MLflow) beyond the CSV logs, which would be important in a multi-team production environment.
+**Pipeline.** Hyperparameter selection by default uses a single chronological holdout rather than rolling time-series cross-validation (TimeSeriesSplit CV is implemented but off by default via `cv_folds`), so tuning is based on one window of data. Imputation values are fixed at training time and could drift in a live deployment. Experiment tracking is CSV-based; a tool like MLflow would be more appropriate in a multi-team production environment. The hyperparameter grids are small (4–10 candidates per algorithm), chosen to keep runtime modest rather than to exhaust the search space.
 
 ---
 
 ## Tests
 
-Unit tests cover the key logic of the cleaning, feature engineering, and training modules without requiring the full dataset.
+33 unit tests cover the key logic of the cleaning, feature engineering, and training modules without requiring the full dataset. Ingestion, evaluation, and reporting modules are not yet covered.
 
 ```bash
 # Run all tests
@@ -251,7 +232,7 @@ The CI pipeline (`.github/workflows/ci.yml`) runs linting and tests on every pus
 ---
 
 ## Appendices
-### Metadata
+### Metadata (selected columns)
 | Column        | Unit               | Description                                                         |
 |---------------|--------------------|---------------------------------------------------------------------|
 | Date          | YYYY-MM-DD         | The date of observation.                                            |
